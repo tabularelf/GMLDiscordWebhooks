@@ -11,35 +11,37 @@ function dhook_create(_webhookURL, _avatarURL = undefined, _username = undefined
 		_headerMap[? "Content-Type"] = "application/json"
 	}
 	
-	webhookURL = _webhookURL;
-	json = {
+	__webhookURL = _webhookURL;
+	__boundary = "";
+	__header = "application/json";
+	__json = {
 		tts: "false",
 		
 	};
 	
 	if (_avatarURL != undefined) {
-		json.avatar_url = _avatarURL;
+		__json.avatar_url = _avatarURL;
 	}
 	
 	if (_username != undefined) {
-		json.username = _username;
+		__json.username = _username;
 	}
 	
 	static clearJSON = function() {
-		json = {};	
+		__json = {};	
 		return self;
 	}
 	
 	static embedStart = function() {
-		if !(variable_struct_exists(json, "embeds")) {
-			json.embeds = [];	
+		if !(variable_struct_exists(__json, "embeds")) {
+			__json.embeds = [];	
 		}
 		__currentEmbed = {};
 		return self;
 	}
 	
 	static embedEnd = function() {
-			array_push(json.embeds, __currentEmbed);
+			array_push(__json.embeds, __currentEmbed);
 			__currentEmbed = -1;//variable_struct_remove(self, "__currentEmbed");
 			return self;
 	}
@@ -51,7 +53,7 @@ function dhook_create(_webhookURL, _avatarURL = undefined, _username = undefined
 		}
 		
 		if (_url != undefined) {
-			_json.url = _url;	
+			__json.url = _url;	
 		}
 		
 		__currentEmbed.author = _json;
@@ -73,7 +75,7 @@ function dhook_create(_webhookURL, _avatarURL = undefined, _username = undefined
 	static embedSetFooter = function(_string, _iconURL = undefined) {
 			var _json = {text: _string};
 			if (_iconURL != undefined) {
-				_json.icon_url = _iconURL;
+				__json.icon_url = _iconURL;
 			}
 			
 			__currentEmbed.footer = _json;
@@ -161,8 +163,8 @@ function dhook_create(_webhookURL, _avatarURL = undefined, _username = undefined
 		}
 		
 		switch(_inline) {
-			case false: _json.inline = "false"; break;
-			case true: _json.inline = "true"; break;
+			case false: __json.inline = "false"; break;
+			case true: __json.inline = "true"; break;
 		}
 		
 		array_push(__currentEmbed.fields, _json);
@@ -170,47 +172,96 @@ function dhook_create(_webhookURL, _avatarURL = undefined, _username = undefined
 	}	
 	
 	static embedClear = function() {
-		json.embeds = [];
+		__json.embeds = [];
 		return self;
 	}
 	
 	static setAvatar = function(_avatarURL) {
-		json.avatar_url = _avatarURL;
+		__json.avatar_url = _avatarURL;
 		return self;
 	}
 	
 	static setUsername = function(_username) {
-		json.username = _username;
+		__json.username = _username;
 		return self;
 	}
 	
 	static setWebhookURL= function(_webhookURL) {
-		webhookURL = _webhookURL;
+		__webhookURL = _webhookURL;
 		return self;
 	}
 	
 	static setMessage = function(_string) {
-		json.content = _string;	
+		__json.content = _string;	
 		return self;
 	}
 	
 	static setTTS = function(_bool) {
 		switch(_bool) {
-			case true: json.tts = "true"; break;
-			case false: json.tts = "false"; break;
+			case true: __json.tts = "true"; break;
+			case false: __json.tts = "false"; break;
 			default: throw "DHook Error: Not a valid boolean"; break;
 		}
 		
 		return self;	
 	}
 	
+	static addAttachment = function(_buffer, _filename, _description = _filename) {
+		__header = "multipart/form-data";
+		
+		if (!variable_struct_exists(__json, "attachments")) {
+			__json.attachments = [];	
+		}
+		var _id = array_length(__json.attachments);
+		array_push(__json.attachments, {
+			id: _id,
+			description: _description,
+			filename: _filename
+		});
+		var _boundary = "";
+		
+		_boundary += "--boundary\n";
+		_boundary += "Content-Disposition: form-data; name=\"files[" + string(_id) + "]\"; filename=" + _filename + "\"\n";
+		_boundary += "Content-Type: image/png";
+		
+		var _size = buffer_get_size(_buffer);
+		var _tell = buffer_tell(_buffer);
+		buffer_seek(_buffer, buffer_seek_start, 0);
+		var _arrayBuffer = array_create(_size);
+		var _i = 0;
+		repeat(_size) {
+			_arrayBuffer[_i] = buffer_read(_buffer, buffer_u8);
+			++_i;
+		}
+		buffer_seek(_buffer, buffer_seek_start, _tell);
+		
+		_boundary += "\n\n" + json_stringify(_arrayBuffer);
+		_boundary += "\n--boundary--\n";
+		//show_debug_message(_boundary);
+		
+		__boundary += _boundary;
+		
+		return self;
+	}
+	
+	static clearAttachments = function() {
+		__header = "application/json";
+		__boundary = "";
+		variable_struct_remove(__json, "attachments");
+	}
+	
 	static send = function() {	
-		if (json[$ "content"] == undefined) && (json[$ "embeds"] == undefined) {
+		if (__json[$ "content"] == undefined) && (__json[$ "embeds"] == undefined) {
 			__dhook_trace("ERROR - " + "Discord Webhook has no message. Please set a message.");
 			return -1;	
 		}
+		_headerMap[? "Content-Type"] = __header;
+		var _json = @"--boundary
+Content-Disposition: form-data; name='payload_json'
+Content-Type: application/json\n" + json_stringify(__json) + ((__boundary != "") ? "\n" + __boundary : "");
+		show_debug_message(_json);
 		
-		return http_request(webhookURL,"POST",_headerMap,json_stringify(json));
+		return http_request(__webhookURL, "POST", _headerMap, _json);
 	}
 }
 	
